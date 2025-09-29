@@ -1,15 +1,17 @@
-from datetime import date
 import logging
 import os
 import sys
+from datetime import date
 
+import math
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import yfinance as yf
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_squared_error
-from math import sqrt
 import tensorflow as tf
+import yfinance as yf
+from math import sqrt
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import MinMaxScaler
 from tensorflow import keras
 
 # Logging configuration
@@ -53,9 +55,9 @@ class StockPricePredictor:
         X, y = [], []
         # ensure we have enough room for `horizon` future steps
         for i in range(window, len(arr) - horizon + 1):
-            X.append(arr[i-window:i, 0])
+            X.append(arr[i - window:i, 0])
             # next `horizon` points as target
-            y.append(arr[i:i+horizon, 0])
+            y.append(arr[i:i + horizon, 0])
         X = np.array(X)
         y = np.array(y)
         return X[..., None], y  # X: (N, window, 1), y: (N, horizon)
@@ -95,8 +97,8 @@ class StockPricePredictor:
         for h in range(self.horizon):
             rmse_h = sqrt(mean_squared_error(self.y_val[:, h], pred_val[:, h]))
             rmse_scaled_per_h.append(rmse_h)
-            y_true_h = self.scaler.inverse_transform(self.y_val[:, h].reshape(-1,1))
-            y_pred_h = self.scaler.inverse_transform(pred_val[:, h].reshape(-1,1))
+            y_true_h = self.scaler.inverse_transform(self.y_val[:, h].reshape(-1, 1))
+            y_pred_h = self.scaler.inverse_transform(pred_val[:, h].reshape(-1, 1))
             rmse_unscaled_per_h.append(sqrt(mean_squared_error(y_true_h, y_pred_h)))
         # aggregate (mean) RMSE
         rmse_scaled = float(np.mean(rmse_scaled_per_h))
@@ -115,7 +117,7 @@ class StockPricePredictor:
         if steps <= self.horizon:
             next_scaled_vec = next_scaled_vec[:steps]
         # inverse-transform each predicted point
-        next_prices = [float(self.scaler.inverse_transform([[v]])[0,0]) for v in next_scaled_vec]
+        next_prices = [float(self.scaler.inverse_transform([[v]])[0, 0]) for v in next_scaled_vec]
         # Generate forecast dates starting from the last date in self.df.index
         last_date = self.df.index[-1]
         forecast_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=steps, freq='B')
@@ -180,8 +182,18 @@ class StockPricePredictor:
 
 
 if __name__ == "__main__":
-    predictor = StockPricePredictor(
-        ticker="AAPL",
+    # Train and export models for multiple tickers
+    tickers = [
+        "AAPL",  # Apple
+        "AMD",  # Advanced Micro Devices
+        "INTC",  # Intel Corp
+        "MSFT",  # Microsoft
+        "NDAQ",  # NASDAQ
+        "NVDA",  # NVIDIA Corp
+        "QCOM",  # Qualcomm Inc
+    ]
+
+    common_cfg = dict(
         start="2015-01-01",
         end=None,
         window=60,
@@ -189,15 +201,106 @@ if __name__ == "__main__":
         epochs=100,
         horizon=5,
     )
-    predictor.load_data()
-    predictor.build_model()
-    predictor.train()
-    predictor.evaluate()
-    predictor.forecast(steps=5)
-    end_str = predictor.end if predictor.end is not None else date.today().strftime("%Y-%m-%d")
-    filename = f"lstm_{predictor.ticker}_{predictor.start}_{end_str}.keras"
-    predictor.save_model(filename)
-    out_dir = os.path.dirname(filename) or "."
-    scaler_path = os.path.join(out_dir, "scaler_params.json")
-    predictor.save_scaler_params(scaler_path)
-    # predictor.save_savedmodel("saved_model")
+
+    all_forecasts = {}
+
+    for tk in tickers:
+        logger.info("\n==============================")
+        logger.info(f"Starting pipeline for ticker: {tk}")
+        try:
+            predictor = StockPricePredictor(ticker=tk, **common_cfg)
+            predictor.load_data()
+            predictor.build_model()
+            predictor.train()
+            predictor.evaluate()
+            fc = predictor.forecast(steps=common_cfg["horizon"])  # list[(pd.Timestamp, float)]
+            all_forecasts[tk] = fc
+
+            end_str = predictor.end if predictor.end is not None else date.today().strftime("%Y-%m-%d")
+            out_dir = os.path.join("models", predictor.ticker)
+            os.makedirs(out_dir, exist_ok=True)
+            filename = os.path.join(out_dir, f"lstm_{predictor.ticker}_{predictor.start}_{end_str}.keras")
+            predictor.save_model(filename)
+
+            scaler_path = os.path.join(out_dir, "scaler_params.json")
+            predictor.save_scaler_params(scaler_path)
+
+            # If you also want SavedModel per ticker, uncomment and give a per-ticker dir, e.g.:
+            # predictor.save_savedmodel(f"saved_model_{predictor.ticker}")
+
+            logger.info(f"Finished pipeline for {tk}")
+        except Exception as e:
+            logger.exception(f"Pipeline failed for {tk}: {e}")
+            continue
+
+    # === Summary artifacts ===
+    summary_dir = os.path.join("models", "_summary")
+    os.makedirs(summary_dir, exist_ok=True)
+    txt_path = os.path.join(summary_dir, "forecast_summary.txt")
+    png_path = os.path.join(summary_dir, "forecast_summary.png")
+
+    # Write text summary
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write("LSTM multi-ticker forecast summary\n")
+        f.write(f"Window={common_cfg['window']}, Horizon={common_cfg['horizon']}\n\n")
+        for tk in tickers:
+            if tk not in all_forecasts:
+                continue
+            f.write(f"Ticker: {tk}\n")
+            for d, p in all_forecasts[tk]:
+                # d may be pandas.Timestamp; ensure date string
+                try:
+                    ds = d.strftime("%Y-%m-%d")
+                except Exception:
+                    ds = str(d)
+                f.write(f"  {ds}: {p:.2f}\n")
+            f.write("\n")
+
+    # Draw combined plot with subplots (one subplot per ticker)
+    n = len(tickers)
+    cols = 2 if n > 1 else 1
+    rows = math.ceil(n / cols)
+
+    plt.rcParams.update({"font.size": 10})
+    fig, axes = plt.subplots(rows, cols, figsize=(12, 4 * rows), sharex=True)
+    # Normalize axes list
+    if rows * cols == 1:
+        ax_list = [axes]
+    else:
+        ax_list = axes.ravel().tolist()
+
+    idx = 0
+    for tk in tickers:
+        if tk not in all_forecasts:
+            continue
+        ax = ax_list[idx]
+        dates = []
+        prices = []
+        for d, p in all_forecasts[tk]:
+            try:
+                dates.append(pd.to_datetime(d))
+            except Exception:
+                dates.append(pd.Timestamp(d))
+            prices.append(p)
+        ax.plot(dates, prices, marker="o", linestyle="-", linewidth=2, markersize=4)
+        ax.grid(True, linestyle="--", alpha=0.6)
+        for label in ax.get_xticklabels():
+            label.set_rotation(30)
+            label.set_ha("right")
+        if idx % cols == 0:
+            ax.set_ylabel("Predicted Close (USD)")
+        ax.set_title(tk)
+        idx += 1
+
+    # Hide any unused subplots
+    for j in range(idx, len(ax_list)):
+        ax_list[j].set_visible(False)
+
+    fig.autofmt_xdate()
+    fig.suptitle("LSTM Forecasts by Ticker", fontsize=14, fontweight="bold", y=0.98)
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=150)
+    plt.close(fig)
+
+    logger.info(f"Summary written: {txt_path}")
+    logger.info(f"Plot saved: {png_path}")

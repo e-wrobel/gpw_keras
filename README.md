@@ -1,18 +1,15 @@
 ### 1) Create and activate virtual environment
-
+Python 3.12 (issues on 3.13)
 ### 2) TensorFlow z GPU (Metal)
 pip install --upgrade pip
+
 pip install tensorflow-macos
+
 pip install tensorflow-metal  # turn on GPU through Metal
 
 ### 3) PyTorch z MPS (GPU Apple)
 
 pip install torch torchvision torchaudio
-
-### 4) JAX with acceleration Metal (uważaj na zgodność wersji)
-pip install jax-metal
-### In case of conflicts with other packages, you can specify versions:
-pip install jax==0.5.0 jaxlib==0.5.0 jax-metal==0.1.1
 
 ### Hardware Requirements
 
