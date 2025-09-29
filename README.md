@@ -96,3 +96,15 @@ Sample JSON response:
   "forecast": [150.23, 151.45, 152.10, 153.00, 154.25]
 }
 ```
+
+### Makefile
+```text
+# Usage examples:
+make venv            # create virtualenv (.venv)
+make install         # install dependencies from requirements.txt
+make train           # train models for all tickers (writes to models/)
+make serve           # run FastAPI server on http://127.0.0.1:8000
+make dev             # run FastAPI with --reload
+make health          # curl /healthz (pretty-printed if jq installed)
+make predict TICKER=AAPL STEPS=5   # sample forecast call
+```
