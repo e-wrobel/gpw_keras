@@ -55,13 +55,15 @@ flowchart LR
 
     A5 --> LSTM[LSTM Layers]
 
-    LSTM --> subgraph Output_Horizon
+    subgraph Output_Horizon
         direction LR
         O1[Day 1 Prediction] --> O2[Day 2 Prediction]
         O2 --> O3[Day 3 Prediction]
         O3 --> O4[Day 4 Prediction]
         O4 --> O5[Day 5 Prediction]
     end
+
+    LSTM --> O1
 ```
 
 ### Example Requests
